@@ -18,7 +18,7 @@ app.post('/api/claude', async (req, res) => {
   try {
     const { prompt, useSearch } = req.body;
     const body = {
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 4000,
       system: 'You are a senior investment analyst. Always respond with valid raw JSON only. Never use markdown, backticks, or any text outside the JSON. Start directly with [ or { and end with ] or }.',
       messages: [{ role: 'user', content: prompt }]
