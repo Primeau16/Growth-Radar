@@ -4,14 +4,13 @@ const cors = require('cors');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Proxy endpoint — keeps API key secure on the server
 app.post('/api/claude', async (req, res) => {
   if (!ANTHROPIC_API_KEY) {
     return res.status(500).json({ error: 'API key not configured on server.' });
@@ -19,8 +18,8 @@ app.post('/api/claude', async (req, res) => {
   try {
     const { prompt, useSearch } = req.body;
     const body = {
-      model: 'claude-haiku-4-5',
-      max_tokens: 2000,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 3000,
       messages: [{ role: 'user', content: prompt }]
     };
     if (useSearch) {
@@ -31,12 +30,18 @@ app.post('/api/claude', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'interleaved-thinking-2025-05-14'
       },
       body: JSON.stringify(body)
     });
     const data = await response.json();
-    const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
+    if (data.error) {
+      return res.status(500).json({ error: data.error.message || 'API error' });
+    }
+    const text = (data.content || [])
+      .map(b => b.type === 'text' ? b.text : '')
+      .join('');
     res.json({ text });
   } catch (err) {
     res.status(500).json({ error: err.message });
