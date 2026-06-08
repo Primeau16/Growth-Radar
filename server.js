@@ -15,23 +15,45 @@ app.post('/api/claude', async (req, res) => {
   if (!ANTHROPIC_API_KEY) return res.status(500).json({ error: 'API key not configured.' });
   try {
     const { prompt, useSearch } = req.body;
+
+    // Build messages — no system prompt when using tools (causes issues)
+    const fullPrompt = `You are a senior investment analyst. IMPORTANT: Your final response must be ONLY valid JSON. No markdown. No backticks. No explanation. Just raw JSON starting with [ or {.\n\n${prompt}`;
+
     const body = {
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 4000,
-      system: 'You are a senior investment analyst. CRITICAL: Always respond with valid JSON only. Never use markdown, backticks, smart quotes, or special characters. Use only straight double quotes in JSON. Start your response with [ or { and end with ] or }. No other text.',
-      messages: [{ role: 'user', content: prompt }]
+      messages: [{ role: 'user', content: fullPrompt }]
     };
-    if (useSearch) body.tools = [{ type: 'web_search_20250305', name: 'web_search' }];
+
+    if (useSearch) {
+      body.tools = [{ type: 'web_search_20250305', name: 'web_search' }];
+    }
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
       body: JSON.stringify(body)
     });
+
     const data = await response.json();
     if (data.error) return res.status(500).json({ error: data.error.message || 'API error' });
-    const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
+
+    // Extract ALL text blocks — including after tool use
+    const text = (data.content || [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('');
+
+    console.log('Response length:', text.length);
+    console.log('First 200 chars:', text.slice(0, 200));
+
     res.json({ text });
   } catch (err) {
+    console.error('Error:', err);
     res.status(500).json({ error: err.message });
   }
 });
