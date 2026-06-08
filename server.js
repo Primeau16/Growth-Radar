@@ -18,8 +18,9 @@ app.post('/api/claude', async (req, res) => {
   try {
     const { prompt, useSearch } = req.body;
     const body = {
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 3000,
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      system: 'You are a senior investment analyst. Always respond with valid raw JSON only. Never use markdown, backticks, or any text outside the JSON. Start directly with [ or { and end with ] or }.',
       messages: [{ role: 'user', content: prompt }]
     };
     if (useSearch) {
@@ -30,8 +31,7 @@ app.post('/api/claude', async (req, res) => {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'anthropic-beta': 'interleaved-thinking-2025-05-14'
+        'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify(body)
     });
@@ -39,9 +39,7 @@ app.post('/api/claude', async (req, res) => {
     if (data.error) {
       return res.status(500).json({ error: data.error.message || 'API error' });
     }
-    const text = (data.content || [])
-      .map(b => b.type === 'text' ? b.text : '')
-      .join('');
+    const text = (data.content || []).map(b => b.type === 'text' ? b.text : '').join('');
     res.json({ text });
   } catch (err) {
     res.status(500).json({ error: err.message });
