@@ -448,7 +448,7 @@ input,select,textarea{outline:none}
               <div id="price-status" style="font-size:11px;color:var(--t4);font-weight:500"></div>
             </div>
           </div>
-          <div class="chart-hero-canvas"><canvas id="portfolio-chart"></canvas></div>
+          <div class="chart-hero-canvas"><canvas id="portfolio-chart"></canvas><div id="chart-empty" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center"></div></div>
         </div>
 
         <div class="intel-card">
@@ -631,7 +631,7 @@ async function fetchLivePrices(){
       const q=d.prices?.[sym];
       if(q&&!isNaN(q.price)){p.current=q.price;p.dayChange=q.percent_change;updated++;}
     });
-    if(updated>0){savePositions();lastPriceUpdate=new Date();renderPortfolio();}
+    if(updated>0){savePositions();recordSnapshot();lastPriceUpdate=new Date();renderPortfolio();}
     setPriceStatus(updated>0?`Updated ${updated} price${updated!==1?"s":""} · ${lastPriceUpdate.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}`:"No prices returned — check tickers");
   }catch(err){
     setPriceStatus("Price update failed: "+err.message);
@@ -669,34 +669,64 @@ function goPage(p){
 /* ── PORTFOLIO ── */
 function savePositions(){try{localStorage.setItem("gr_positions",JSON.stringify(positions));}catch(e){}}
 
-function genPortfolioHistory(range){
-  const pts={"1W":7,"1M":30,"3M":90,"1Y":365}[range]||30;
-  let cur=0;positions.forEach(p=>cur+=p.current*p.shares);
-  let cost=0;positions.forEach(p=>cost+=p.entry*p.shares);
-  if(cur===0)cur=cost||1000;
-  const start=cost||cur*0.9;
-  const arr=[];
-  for(let i=0;i<pts;i++){
-    const t=i/(pts-1);
-    const base=start+(cur-start)*t;
-    const noise=(Math.sin(i*0.7)+Math.sin(i*0.3))*cur*0.015;
-    arr.push(Math.max(0,base+noise));
-  }
-  arr[arr.length-1]=cur;
-  return arr;
+/* ── REAL PORTFOLIO HISTORY (daily snapshots in localStorage) ── */
+function loadSnapshots(){
+  try{const s=localStorage.getItem("gr_history");return s?JSON.parse(s):[];}catch(e){return [];}
+}
+function saveSnapshots(snaps){
+  try{localStorage.setItem("gr_history",JSON.stringify(snaps));}catch(e){}
+}
+// Records today's total value. One snapshot per calendar day (updates if same day).
+function recordSnapshot(){
+  if(!positions.length)return;
+  let total=0;positions.forEach(p=>total+=p.current*p.shares);
+  if(total<=0)return;
+  const today=new Date().toISOString().slice(0,10); // YYYY-MM-DD
+  let snaps=loadSnapshots();
+  const existing=snaps.findIndex(s=>s.date===today);
+  if(existing>-1){snaps[existing].value=total;}
+  else{snaps.push({date:today,value:total});}
+  // keep sorted, cap at ~400 days
+  snaps.sort((a,b)=>a.date.localeCompare(b.date));
+  if(snaps.length>400)snaps=snaps.slice(-400);
+  saveSnapshots(snaps);
+}
+// Returns snapshots filtered to the selected range
+function getHistoryForRange(range){
+  const snaps=loadSnapshots();
+  if(!snaps.length)return [];
+  const days={"1W":7,"1M":30,"3M":90,"1Y":365}[range]||30;
+  const cutoff=new Date();cutoff.setDate(cutoff.getDate()-days);
+  const cutoffStr=cutoff.toISOString().slice(0,10);
+  return snaps.filter(s=>s.date>=cutoffStr);
 }
 
 function drawPortfolioChart(){
   if(portfolioChart){portfolioChart.destroy();portfolioChart=null;}
   const canvas=document.getElementById("portfolio-chart");if(!canvas)return;
-  const data=genPortfolioHistory(portfolioRange);
+  const hist=getHistoryForRange(portfolioRange);
+  const emptyState=document.getElementById("chart-empty");
+
+  // Need at least 2 real data points to draw a meaningful line
+  if(hist.length<2){
+    canvas.style.display="none";
+    if(emptyState){
+      emptyState.style.display="flex";
+      const snaps=loadSnapshots();
+      emptyState.innerHTML=`<div style="text-align:center"><div style="font-size:26px;opacity:.2;margin-bottom:10px">📈</div><div style="font-size:14px;font-weight:600;color:var(--t2);margin-bottom:6px">Building your history</div><div style="font-size:12px;color:var(--t4);line-height:1.6;max-width:280px">${snaps.length===0?"Your portfolio value is recorded each time you open the app. Check back tomorrow to see your first trend.":"1 day recorded so far. Your performance line appears once there are at least 2 days of history."}</div></div>`;
+    }
+    return;
+  }
+  if(emptyState)emptyState.style.display="none";
+  canvas.style.display="block";
+
+  const data=hist.map(s=>s.value);
+  const labels=hist.map(s=>{const d=new Date(s.date+"T00:00:00");return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});});
   const up=data[data.length-1]>=data[0];
   const lc=up?"#5eead4":"#fb7185";
-  const n=data.length;const off={"1W":1,"1M":1,"3M":3,"1Y":12}[portfolioRange]||1;
-  const labels=Array.from({length:n},(_,i)=>{const d=new Date();d.setDate(d.getDate()-(n-1-i)*off);return d.toLocaleDateString("en-US",{month:"short",day:"numeric"});});
   portfolioChart=new Chart(canvas,{
     type:"line",
-    data:{labels,datasets:[{data,borderColor:lc,borderWidth:2.5,pointRadius:0,fill:true,tension:0.4,
+    data:{labels,datasets:[{data,borderColor:lc,borderWidth:2.5,pointRadius:hist.length<=10?3:0,pointBackgroundColor:lc,fill:true,tension:0.4,
       backgroundColor:(ctx)=>{const g=ctx.chart.ctx.createLinearGradient(0,0,0,240);g.addColorStop(0,lc+"40");g.addColorStop(1,lc+"00");return g;}}]},
     options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{mode:"index",intersect:false,backgroundColor:"#151d2e",titleColor:"#5a6678",bodyColor:"#f0f6fc",borderColor:"rgba(255,255,255,.1)",borderWidth:1,padding:11,displayColors:false,callbacks:{label:ctx=>"$"+Number(ctx.raw).toLocaleString("en-US",{maximumFractionDigits:2})}}},
     scales:{x:{grid:{display:false},ticks:{color:"#3a4456",font:{size:10,family:"Sora"},maxTicksLimit:7}},y:{grid:{color:"rgba(255,255,255,.04)"},ticks:{color:"#3a4456",font:{size:10,family:"Sora"},callback:v=>"$"+Number(v).toLocaleString("en-US",{maximumFractionDigits:0})},position:"right"}},
@@ -723,10 +753,12 @@ function renderPortfolio(){
     <div class="hero-card"><div class="hero-card-label">Cost basis</div><div class="hero-value">$${tc.toLocaleString("en-US",{maximumFractionDigits:0})}</div><div class="hero-sub nu">invested</div><canvas class="hero-spark" id="spark3"></canvas></div>
     <div class="hero-card"><div class="hero-card-label">Thesis health</div><div class="hero-value">${positions.filter(p=>p.health==="intact").length}<span style="font-size:16px;color:var(--t3)">/${positions.length||0}</span></div><div class="hero-sub nu">intact</div><canvas class="hero-spark" id="spark4"></canvas></div>`;
   setTimeout(()=>{
-    miniSpark("spark1",genPortfolioHistory("1M").filter((_,i)=>i%3===0),"#5eead4");
-    miniSpark("spark2",genPortfolioHistory("1M").filter((_,i)=>i%3===0),pnl>=0?"#34d399":"#fb7185");
-    miniSpark("spark3",[tc*.9,tc*.95,tc*.92,tc],"#818cf8");
-    miniSpark("spark4",[1,1,1,1],"#a78bfa");
+    const snaps=loadSnapshots();
+    const sparkData=snaps.length>=2?snaps.slice(-12).map(s=>s.value):[tv,tv];
+    miniSpark("spark1",sparkData,"#5eead4");
+    miniSpark("spark2",sparkData,pnl>=0?"#34d399":"#fb7185");
+    miniSpark("spark3",[tc,tc],"#818cf8");
+    miniSpark("spark4",[1,1],"#a78bfa");
   },50);
 
   const tbl=document.getElementById("pos-table");
@@ -792,7 +824,7 @@ function savePosition(){
   const existing=idx>-1?positions[idx]:null;
   const pos={ticker,name,shares,entry,current,type,thesis,health,addedDate:existing?existing.addedDate:new Date().toLocaleDateString("en-US",{month:"short",day:"numeric"}),updates:existing?existing.updates:[]};
   if(idx>-1)positions[idx]=pos;else positions.push(pos);
-  savePositions();closeAddModal();renderPortfolio();
+  savePositions();recordSnapshot();closeAddModal();renderPortfolio();
 }
 function removePosition(ticker){if(confirm("Remove "+ticker+"?")){positions=positions.filter(p=>p.ticker!==ticker);savePositions();renderPortfolio();}}
 
