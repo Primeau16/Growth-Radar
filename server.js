@@ -108,15 +108,5 @@ app.post('/api/history', async (req, res) => {
   }
 });
 
-// ── DEBUG: shows which env vars the server can actually see (names only, not values) ──
-app.get('/api/debug', (req, res) => {
-  res.json({
-    hasAnthropicKey: !!ANTHROPIC_API_KEY,
-    hasTwelveDataKey: !!TWELVE_DATA_KEY,
-    twelveKeyLength: TWELVE_DATA_KEY ? TWELVE_DATA_KEY.length : 0,
-    envVarsWithKEY: Object.keys(process.env).filter(k => k.includes('KEY') || k.includes('DATA') || k.includes('TWELVE'))
-  });
-});
-
 app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.listen(PORT, () => console.log(`GrowthRadar running on port ${PORT}`));
